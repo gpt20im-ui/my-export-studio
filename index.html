@@ -162,6 +162,73 @@ document.getElementById("prepare").addEventListener("click",function(){
  "Settings prepared: "+JSON.stringify(settings);
  alert("Export settings prepared. Rendering engine will be connected next.");
 });
+const exportButton = document.getElementById("prepare");
+
+exportButton.addEventListener("click", async function () {
+  const video = document.getElementById("preview");
+
+  if (!fileInput.files.length) {
+    alert("Please upload a video first.");
+    return;
+  }
+
+  const capture = video.captureStream || video.webkitCaptureStream;
+
+  if (!capture || !window.MediaRecorder) {
+    alert("Video recording is not supported in this browser.");
+    return;
+  }
+
+  const stream = capture.call(video);
+
+  let mime = "video/webm";
+
+  if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
+    mime = "video/webm;codecs=vp9";
+  } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) {
+    mime = "video/webm;codecs=vp8";
+  }
+
+  const chunks = [];
+  const recorder = new MediaRecorder(stream, {
+    mimeType: mime
+  });
+
+  recorder.ondataavailable = function (event) {
+    if (event.data.size > 0) chunks.push(event.data);
+  };
+
+  recorder.onstop = function () {
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "my-export.webm";
+    link.click();
+
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    document.getElementById("status").textContent =
+      "WebM video exported successfully!";
+  };
+
+  try {
+    video.currentTime = 0;
+    recorder.start();
+    await video.play();
+
+    video.onended = function () {
+      if (recorder.state === "recording") recorder.stop();
+    };
+
+    document.getElementById("status").textContent =
+      "Recording video... Please wait.";
+  } catch (error) {
+    if (recorder.state === "recording") recorder.stop();
+    alert("Export error: " + error.message);
+  }
+});
 </script>
 </body>
 </html>
