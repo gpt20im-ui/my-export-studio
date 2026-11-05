@@ -1,1 +1,168 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Export Studio</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d13;color:#eee;font-family:Arial,sans-serif}
+header{padding:20px;background:#171720;border-bottom:1px solid #343440}
+.logo{font-size:23px;font-weight:bold;color:#bd91ff}
+header p{font-size:11px;color:#999;letter-spacing:2px}
+main{max-width:900px;margin:auto;padding:16px}
+.panel{background:#191922;border:1px solid #343440;border-radius:12px;padding:18px;margin-bottom:16px}
+h3{color:#c9a5ff;margin-top:0}
+.upload{border:2px dashed #8055bd;padding:25px;text-align:center;border-radius:10px}
+input,select{width:100%;padding:12px;background:#101018;color:white;border:1px solid #444;border-radius:7px;margin-top:7px}
+label{display:block;margin-top:14px;color:#bbb;font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button{background:#8955d8;color:white;border:0;padding:14px;border-radius:8px;font-weight:bold;width:100%;margin-top:12px}
+video{width:100%;max-height:300px;margin-top:15px;background:#000}
+small{color:#999}
+.status{color:#c9a5ff;overflow-wrap:anywhere}
+@media(max-width:500px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">✦ MY EXPORT STUDIO</div>
+<p>PROFESSIONAL VIDEO EXPORT ENGINE</p>
+</header>
+
+<main>
+<div class="panel">
+<h3>01 — Import Media</h3>
+<div class="upload">
+<p>Select your video file</p>
+<input type="file" id="file" accept="video/*">
+<video id="preview" controls hidden></video>
+<p id="fileinfo" class="status">No video selected</p>
+</div>
+</div>
+
+<div class="panel">
+<h3>02 — Output Settings</h3>
+<div class="grid">
+<div>
+<label>Format</label>
+<select id="format">
+<option>MP4</option><option>MOV</option>
+<option>WebM</option><option>GIF</option>
+<option>PNG Sequence</option>
+</select>
+</div>
+<div>
+<label>Codec</label>
+<select id="codec">
+<option>H.264</option><option>H.265</option>
+<option>ProRes 4444</option><option>VP9</option>
+</select>
+</div>
+<div>
+<label>Resolution</label>
+<select id="resolution">
+<option>1920x1080</option>
+<option>3840x2160</option>
+<option>2560x1440</option>
+<option>1280x720</option>
+<option>854x480</option>
+</select>
+</div>
+<div>
+<label>Frame Rate</label>
+<select id="fps">
+<option>24</option><option>25</option>
+<option selected>30</option><option>50</option>
+<option>60</option><option>120</option>
+</select>
+</div>
+<div>
+<label>Quality</label>
+<select id="quality">
+<option>High</option><option>Medium</option>
+<option>Maximum</option><option>Low</option>
+</select>
+</div>
+<div>
+<label>Bitrate</label>
+<select id="bitrate">
+<option>Auto</option><option>5 Mbps</option>
+<option>10 Mbps</option><option>20 Mbps</option>
+<option>40 Mbps</option>
+</select>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h3>03 — Alpha Channel</h3>
+<label>Color Channels</label>
+<select id="alpha">
+<option>RGB</option><option>RGBA - Transparency</option>
+</select>
+<label>Background</label>
+<select id="background">
+<option>Transparent</option><option>Black</option>
+<option>White</option><option>Green Screen</option>
+</select>
+</div>
+
+<div class="panel">
+<h3>04 — Audio Settings</h3>
+<label>Audio Output</label>
+<select id="audio">
+<option>AAC</option><option>WAV</option>
+<option>No Audio</option>
+</select>
+</div>
+
+<div class="panel">
+<h3>05 — Export Queue</h3>
+<p id="status" class="status">Waiting for video...</p>
+<button id="prepare">Prepare Export</button>
+<small>Export engine connection is the next development phase.</small>
+</div>
+</main>
+
+<script>
+const fileInput=document.getElementById("file");
+const preview=document.getElementById("preview");
+let videoURL=null;
+
+fileInput.addEventListener("change",function(){
+ const file=this.files[0];
+ if(!file)return;
+ if(videoURL)URL.revokeObjectURL(videoURL);
+ videoURL=URL.createObjectURL(file);
+ preview.src=videoURL;
+ preview.hidden=false;
+ document.getElementById("fileinfo").textContent=
+ file.name+" | "+(file.size/1048576).toFixed(2)+" MB";
+ document.getElementById("status").textContent="Video loaded successfully.";
+});
+
+document.getElementById("prepare").addEventListener("click",function(){
+ if(!fileInput.files.length){
+ alert("Please upload a video first.");
+ return;
+ }
+ const settings={
+ format:document.getElementById("format").value,
+ codec:document.getElementById("codec").value,
+ resolution:document.getElementById("resolution").value,
+ fps:document.getElementById("fps").value,
+ quality:document.getElementById("quality").value,
+ bitrate:document.getElementById("bitrate").value,
+ alpha:document.getElementById("alpha").value,
+ audio:document.getElementById("audio").value
+ };
+ document.getElementById("status").textContent=
+ "Settings prepared: "+JSON.stringify(settings);
+ alert("Export settings prepared. Rendering engine will be connected next.");
+});
+</script>
+</body>
+</html>
+
