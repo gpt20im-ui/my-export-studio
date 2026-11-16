@@ -626,9 +626,9 @@ class MainActivity : Activity() {
     private fun renderedPosMs(p: MediaPlayer): Int {
         try {
             val ts = p.timestamp
-            if (ts != null && ts.clockRate > 0f) {
+            if (ts != null && ts.mediaClockRate > 0f) {
                 val nowNs = System.nanoTime()
-                val us = ts.mediaTimeUs + ((nowNs - ts.nanoTime) / 1000.0 * ts.clockRate).toLong()
+                val us = ts.anchorMediaTimeUs + ((nowNs - ts.anchorSystemNanoTime) / 1000.0 * ts.mediaClockRate).toLong()
                 return (us / 1000).toInt()
             }
         } catch (_: Exception) {
