@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.WindowManager
@@ -63,6 +64,13 @@ class MainActivity : Activity() {
     private var clientFile: File? = null
     @Volatile private var rttMs = 0L
     @Volatile private var connGen = 0
+    @Volatile private var offsetNs = 0L
+    @Volatile private var haveOffset = false
+    @Volatile private var userAdjMs = 0
+    private var curSpeed = 1f
+    private var lastSeekAt = 0L
+    private val samples = ArrayDeque<LongArray>()
+    private var tick = 0
 
     // ---- ui ----
     private var statusTv: TextView? = null
@@ -174,6 +182,8 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
             }
+            tick++
+            if (tick % 2 == 0 && hostPlaying && songFile != null) broadcastState()
             h.postDelayed(this, 500)
         }
     }
@@ -273,6 +283,7 @@ class MainActivity : Activity() {
             setText(prefs.getString("ip", ""))
         }
         col.addView(ipInput)
+        userAdjMs = prefs.getInt("adj", 0)
         val st = tv("")
         statusTv = st
         col.addView(btn("Connect") {
@@ -285,6 +296,24 @@ class MainActivity : Activity() {
             }
         })
         col.addView(st)
+        col.addView(tv("Is phone ki awaaz host se late aaye to + dabao, jaldi aaye to - dabao (50 ms har baar):"))
+        val adjTv = tv("Adjust: " + userAdjMs + " ms", 18f)
+        val setAdj = { v: Int ->
+            userAdjMs = v
+            prefs.edit().putInt("adj", v).apply()
+            adjTv.text = "Adjust: " + v + " ms"
+        }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(
+            btn("-50 ms") { setAdj(userAdjMs - 50) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        row.addView(
+            btn("+50 ms") { setAdj(userAdjMs + 50) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        col.addView(row)
+        col.addView(adjTv)
         val sb = SeekBar(this)
         sb.isEnabled = false
         seekBar = sb
@@ -340,6 +369,7 @@ class MainActivity : Activity() {
                     c.send {
                         it.writeByte(5)
                         it.writeLong(v)
+                        it.writeLong(System.nanoTime())
                     }
                 }
             }
@@ -366,8 +396,10 @@ class MainActivity : Activity() {
             val p = player
             if (p != null && songFile != null) {
                 val pos = try { p.currentPosition } catch (_: Exception) { 0 }
+                val tn = System.nanoTime()
                 out.writeByte(if (hostPlaying) 1 else 2)
                 out.writeLong(pos.toLong())
+                if (hostPlaying) out.writeLong(tn)
             }
         }
     }
@@ -482,6 +514,10 @@ class MainActivity : Activity() {
                 val inp = DataInputStream(BufferedInputStream(s.getInputStream(), 65536))
                 val out = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
                 rttMs = 0
+                haveOffset = false
+                offsetNs = 0
+                synchronized(samples) { samples.clear() }
+                curSpeed = 1f
                 var pinging = false
                 while (gen == connGen) {
                     when (inp.readByte().toInt()) {
@@ -492,13 +528,15 @@ class MainActivity : Activity() {
                                 val sock = s
                                 Thread {
                                     try {
-                                        repeat(5) {
+                                        var n = 0
+                                        while (gen == connGen) {
                                             synchronized(out) {
                                                 out.writeByte(4)
                                                 out.writeLong(System.nanoTime())
                                                 out.flush()
                                             }
-                                            Thread.sleep(100)
+                                            n++
+                                            Thread.sleep(if (n < 12) 150L else 2000L)
                                         }
                                     } catch (_: Exception) {
                                         try { sock.close() } catch (_: Exception) {}
@@ -508,7 +546,8 @@ class MainActivity : Activity() {
                         }
                         1 -> {
                             val pos = inp.readLong()
-                            startAt(pos)
+                            val hostNs = inp.readLong()
+                            onPlay(pos, hostNs)
                         }
                         2 -> {
                             val pos = inp.readLong()
@@ -520,9 +559,21 @@ class MainActivity : Activity() {
                             ui { statusTv?.text = "Paused" }
                         }
                         5 -> {
-                            val t = inp.readLong()
-                            val r = (System.nanoTime() - t) / 1_000_000
-                            if (rttMs == 0L || r < rttMs) rttMs = r
+                            val t0 = inp.readLong()
+                            val hostNs = inp.readLong()
+                            val t2 = System.nanoTime()
+                            val rtt = t2 - t0
+                            val off = hostNs - (t0 + rtt / 2)
+                            synchronized(samples) {
+                                samples.addLast(longArrayOf(rtt, off))
+                                if (samples.size > 10) samples.removeFirst()
+                                val best = samples.minByOrNull { it[0] }
+                                if (best != null) {
+                                    offsetNs = best[1]
+                                    rttMs = best[0] / 1_000_000
+                                    haveOffset = true
+                                }
+                            }
                         }
                     }
                 }
@@ -564,20 +615,53 @@ class MainActivity : Activity() {
         np.setOnCompletionListener { ui { statusTv?.text = "Song khatam" } }
         try { player?.release() } catch (_: Exception) {}
         player = np
+        curSpeed = 1f
         val oldFile = clientFile
         clientFile = f
         try { oldFile?.delete() } catch (_: Exception) {}
         ui { statusTv?.text = "Ready: $name\nHost ke Play ka wait..." }
     }
 
-    private fun startAt(pos: Long) {
+    private fun setSpeed(p: MediaPlayer, want: Float) {
+        if (want == curSpeed) return
+        try {
+            p.playbackParams = p.playbackParams.setSpeed(want)
+            curSpeed = want
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Host ne bataya: hostNs (host clock) par song ki position pos ms thi. Usse abhi ki target position nikalo. */
+    private fun onPlay(pos: Long, hostNs: Long) {
         val p = player ?: return
         try {
-            val target = (pos + rttMs / 2).toInt()
-            val drift = Math.abs(p.currentPosition - target)
-            if (!p.isPlaying || drift > 50) p.seekTo(target)
-            if (!p.isPlaying) p.start()
-            ui { statusTv?.text = "Playing (sync, delay ~" + rttMs + "ms)" }
+            val nowHostNs = System.nanoTime() + offsetNs
+            val elapsedMs = if (haveOffset) ((nowHostNs - hostNs) / 1_000_000).coerceIn(0L, 2000L) else 20L
+            val target = (pos + elapsedMs + userAdjMs).toInt().coerceAtLeast(0)
+            val now = SystemClock.elapsedRealtime()
+            if (!p.isPlaying) {
+                p.seekTo(target)
+                p.start()
+                lastSeekAt = now
+                ui { statusTv?.text = "Playing (sync ho raha hai...)" }
+            } else {
+                val drift = p.currentPosition - target
+                if (Math.abs(drift) > 400 && now - lastSeekAt > 1500) {
+                    p.seekTo(target + 80)
+                    lastSeekAt = now
+                    setSpeed(p, 1f)
+                } else {
+                    val want = when {
+                        drift > 25 -> 0.96f
+                        drift < -25 -> 1.04f
+                        Math.abs(drift) < 10 -> 1f
+                        else -> curSpeed
+                    }
+                    setSpeed(p, want)
+                }
+                val rtt = rttMs
+                ui { statusTv?.text = "Playing. Farq: " + drift + " ms (net " + rtt + " ms, adjust " + userAdjMs + " ms)" }
+            }
         } catch (_: Exception) {
         }
     }
