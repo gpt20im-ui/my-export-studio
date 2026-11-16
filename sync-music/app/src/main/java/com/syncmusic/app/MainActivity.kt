@@ -62,6 +62,7 @@ class MainActivity : Activity() {
     private var clientSock: Socket? = null
     private var clientFile: File? = null
     @Volatile private var rttMs = 0L
+    @Volatile private var connGen = 0
 
     // ---- ui ----
     private var statusTv: TextView? = null
@@ -193,6 +194,7 @@ class MainActivity : Activity() {
         songName = ""
         songVer++
         rttMs = 0
+        connGen++
         seekBar = null
         timeTv = null
         playBtn = null
@@ -424,6 +426,10 @@ class MainActivity : Activity() {
                 }
                 val old = songFile
                 val np = newPlayer(f.path)
+                np.setOnErrorListener { _, what, extra ->
+                    ui { statusTv?.text = "Player error: $what / $extra" }
+                    true
+                }
                 np.setOnCompletionListener {
                     hostPlaying = false
                     ui { playBtn?.text = "Play" }
@@ -455,22 +461,32 @@ class MainActivity : Activity() {
 
     private fun connect(ip: String) {
         statusTv?.text = "Connect ho raha hai..."
+        val gen = ++connGen
+        val oldSock = clientSock
+        clientSock = null
+        try { oldSock?.close() } catch (_: Exception) {}
+        try { player?.release() } catch (_: Exception) {}
+        player = null
         Thread {
             var s: Socket? = null
             try {
                 s = Socket()
                 s.tcpNoDelay = true
                 s.connect(InetSocketAddress(ip, port), 5000)
+                if (gen != connGen) {
+                    s.close()
+                    return@Thread
+                }
                 clientSock = s
                 ui { statusTv?.text = "Connected. Host ke song ka wait..." }
                 val inp = DataInputStream(BufferedInputStream(s.getInputStream(), 65536))
                 val out = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
                 rttMs = 0
                 var pinging = false
-                while (true) {
+                while (gen == connGen) {
                     when (inp.readByte().toInt()) {
                         0 -> {
-                            receiveSong(inp)
+                            receiveSong(inp, gen)
                             if (!pinging) {
                                 pinging = true
                                 val sock = s
@@ -511,12 +527,12 @@ class MainActivity : Activity() {
                     }
                 }
             } catch (e: Exception) {
-                if (clientSock === s) ui { statusTv?.text = "Disconnect: " + e.message }
+                if (gen == connGen) ui { statusTv?.text = "Disconnect: " + e.message }
             }
         }.start()
     }
 
-    private fun receiveSong(inp: DataInputStream) {
+    private fun receiveSong(inp: DataInputStream, gen: Int) {
         val name = inp.readUTF()
         val len = inp.readLong()
         val f = File(cacheDir, "client_" + System.currentTimeMillis() + ".audio")
@@ -536,7 +552,15 @@ class MainActivity : Activity() {
                 }
             }
         }
+        if (gen != connGen) {
+            try { f.delete() } catch (_: Exception) {}
+            return
+        }
         val np = newPlayer(f.path)
+        np.setOnErrorListener { _, what, extra ->
+            ui { statusTv?.text = "Player error: $what / $extra" }
+            true
+        }
         np.setOnCompletionListener { ui { statusTv?.text = "Song khatam" } }
         try { player?.release() } catch (_: Exception) {}
         player = np
