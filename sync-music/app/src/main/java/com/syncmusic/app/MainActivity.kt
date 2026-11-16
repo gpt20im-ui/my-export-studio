@@ -395,7 +395,7 @@ class MainActivity : Activity() {
         c.send { out ->
             val p = player
             if (p != null && songFile != null) {
-                val pos = try { p.currentPosition } catch (_: Exception) { 0 }
+                val pos = try { renderedPosMs(p) } catch (_: Exception) { 0 }
                 val tn = System.nanoTime()
                 out.writeByte(if (hostPlaying) 1 else 2)
                 out.writeLong(pos.toLong())
@@ -622,6 +622,20 @@ class MainActivity : Activity() {
         ui { statusTv?.text = "Ready: $name\nHost ke Play ka wait..." }
     }
 
+    /** Song ki wo position jo abhi speaker se nikal rahi hai (audio buffer delay ginke). Na mile to currentPosition. */
+    private fun renderedPosMs(p: MediaPlayer): Int {
+        try {
+            val ts = p.timestamp
+            if (ts != null && ts.clockRate > 0f) {
+                val nowNs = System.nanoTime()
+                val us = ts.mediaTimeUs + ((nowNs - ts.nanoTime) / 1000.0 * ts.clockRate).toLong()
+                return (us / 1000).toInt()
+            }
+        } catch (_: Exception) {
+        }
+        return p.currentPosition
+    }
+
     private fun setSpeed(p: MediaPlayer, want: Float) {
         if (want == curSpeed) return
         try {
@@ -645,16 +659,18 @@ class MainActivity : Activity() {
                 lastSeekAt = now
                 ui { statusTv?.text = "Playing (sync ho raha hai...)" }
             } else {
-                val drift = p.currentPosition - target
-                if (Math.abs(drift) > 400 && now - lastSeekAt > 1500) {
+                val drift = renderedPosMs(p) - target
+                if (Math.abs(drift) > 300 && now - lastSeekAt > 1500) {
                     p.seekTo(target + 80)
                     lastSeekAt = now
                     setSpeed(p, 1f)
                 } else {
                     val want = when {
-                        drift > 25 -> 0.96f
-                        drift < -25 -> 1.04f
-                        Math.abs(drift) < 10 -> 1f
+                        drift > 60 -> 0.96f
+                        drift > 10 -> 0.99f
+                        drift < -60 -> 1.04f
+                        drift < -10 -> 1.01f
+                        Math.abs(drift) < 4 -> 1f
                         else -> curSpeed
                     }
                     setSpeed(p, want)
