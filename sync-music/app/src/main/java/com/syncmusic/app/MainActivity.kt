@@ -267,7 +267,7 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences("sync", MODE_PRIVATE)
         val ipInput = EditText(this).apply {
             hint = "jaise 192.168.43.1"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setText(prefs.getString("ip", ""))
         }
         col.addView(ipInput)
@@ -275,8 +275,8 @@ class MainActivity : Activity() {
         statusTv = st
         col.addView(btn("Connect") {
             val ip = ipInput.text.toString().trim()
-            if (ip.isEmpty()) {
-                Toast.makeText(this, "IP daalo", Toast.LENGTH_SHORT).show()
+            if (!Regex("""\d{1,3}(\.\d{1,3}){3}""").matches(ip)) {
+                Toast.makeText(this, "IP galat hai. Aisa daalo: 192.168.43.1", Toast.LENGTH_LONG).show()
             } else {
                 prefs.edit().putString("ip", ip).apply()
                 connect(ip)
