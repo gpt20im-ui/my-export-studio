@@ -112,9 +112,15 @@ export default function VoiceScreen() {
         language: voiceLang,
         rate: 0.95,
         pitch: 1.05,
-        onStart: () => mounted.current && setSpeaking(true),
-        onDone: () => mounted.current && setSpeaking(false),
-        onStopped: () => mounted.current && setSpeaking(false),
+        onStart: () => {
+          if (mounted.current) setSpeaking(true);
+        },
+        onDone: () => {
+          if (mounted.current) setSpeaking(false);
+        },
+        onStopped: () => {
+          if (mounted.current) setSpeaking(false);
+        },
         onError: () => {
           if (!mounted.current) return;
           setSpeaking(false);
